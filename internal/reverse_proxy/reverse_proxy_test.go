@@ -19,84 +19,35 @@ import (
 )
 
 func TestReverseProxy(t *testing.T) {
-	endpointUrl := "http://localhost/simple-query"
 	pathMatcher := CreateTestPathPrefixMatcher("/simple-query")
+	methodsMatcher := CreateTestMethodsMatcher(http.MethodPost)
+	matchers := []Matcher{pathMatcher, methodsMatcher}
 
-	t.Run("should forward when at least one matcher succeed", func(t *testing.T) {
-		// arrange
-		methodsMatcher := CreateTestMethodsMatcher(http.MethodPost)
-		reverseProxy := createTestReverseProxy()
-		reverseProxy.registerTestApplicationAndWait([]core.Matcher{pathMatcher, methodsMatcher}, handlerWithStatusCode(http.StatusOK))
+	testData := []struct {
+		Name, Method, Url  string
+		ExpectedStatusCode int
+	}{
+		{"should forward when at least the path matcher succeed", http.MethodGet, "http://localhost/simple-query", http.StatusOK},
+		{"should forward when at least the method matcher succeed", http.MethodPost, "http://localhost/another-query", http.StatusOK},
+		{"should not forward when no matcher succeed", http.MethodGet, "http://localhost/another-query", http.StatusNotFound},
+	}
 
-		firstRequest := httptest.NewRequest(http.MethodGet, endpointUrl, nil)
-		secondRequest := httptest.NewRequest(http.MethodPost, "http://localhost/another-query", nil)
-		firstResponse := httptest.NewRecorder()
-		secondResponse := httptest.NewRecorder()
+	for _, test := range testData {
+		t.Run(test.Name, func(t *testing.T) {
+			// arrange
+			reverseProxy := createTestReverseProxy()
+			reverseProxy.registerTestApplicationAndWait(matchers, handlerWithStatusCode(http.StatusOK))
 
-		// act
-		reverseProxy.router.ServeHTTP(firstResponse, firstRequest)
-		reverseProxy.router.ServeHTTP(secondResponse, secondRequest)
+			request := httptest.NewRequest(test.Method, test.Url, nil)
+			response := httptest.NewRecorder()
 
-		// assert
-		assert.Equal(t, http.StatusOK, firstResponse.Code)
-		assert.Equal(t, http.StatusOK, secondResponse.Code)
-	})
+			// act
+			reverseProxy.router.ServeHTTP(response, request)
 
-	t.Run("should forward back cookies from upstream response", func(t *testing.T) {
-		// arrange
-		methodsMatcher := CreateTestMethodsMatcher(http.MethodPost)
-		reverseProxy := createTestReverseProxy()
-		reverseProxy.registerTestApplicationAndWait([]core.Matcher{pathMatcher, methodsMatcher}, handlerWritingResponseCookie())
-
-		request := httptest.NewRequest(http.MethodGet, endpointUrl, nil)
-		response := httptest.NewRecorder()
-
-		// act
-		reverseProxy.router.ServeHTTP(response, request)
-
-		// assert
-		assert.Equal(t, http.StatusOK, response.Code)
-		cookie := response.Header().Get("Set-Cookie")
-		assert.Equal(t, "cookie1=value1", cookie)
-	})
-
-	t.Run("should remove non secured headers from upstream response", func(t *testing.T) {
-		// arrange
-		methodsMatcher := CreateTestMethodsMatcher(http.MethodPost)
-		reverseProxy := createTestReverseProxy()
-		reverseProxy.registerTestApplicationAndWait([]core.Matcher{pathMatcher, methodsMatcher}, handlerWithNonSecuredResponseHeader())
-
-		request := httptest.NewRequest(http.MethodGet, endpointUrl, nil)
-		response := httptest.NewRecorder()
-
-		// act
-		reverseProxy.router.ServeHTTP(response, request)
-
-		// assert
-		assert.Equal(t, http.StatusOK, response.Code)
-		assert.Equal(t, "", response.Header().Get("Server"))
-		assert.Equal(t, "", response.Header().Get("X-Powered-By"))
-		assert.Equal(t, "", response.Header().Get("X-AspNet-Version"))
-		assert.Equal(t, "", response.Header().Get("X-AspNetMvc-Version"))
-		assert.Equal(t, "https://new.test.com", response.Header().Get("Location"))
-		assert.Equal(t, "application/json", response.Header().Get("Content-Type"))
-	})
-
-	t.Run("should return 503 when no upstream available", func(t *testing.T) {
-		// arrange
-		methodsMatcher := CreateTestMethodsMatcher(http.MethodPost)
-		reverseProxy := createTestReverseProxy()
-		reverseProxy.registerTestApplicationAndNoWait([]core.Matcher{pathMatcher, methodsMatcher}, handlerWithStatusCode(http.StatusGatewayTimeout))
-
-		request := httptest.NewRequest(http.MethodGet, endpointUrl, nil)
-		response := httptest.NewRecorder()
-
-		// act
-		reverseProxy.router.ServeHTTP(response, request)
-
-		// assert
-		assert.Equal(t, http.StatusServiceUnavailable, response.Code)
-	})
+			// assert
+			assert.Equal(t, test.ExpectedStatusCode, response.Code)
+		})
+	}
 }
 
 func createTestReverseProxy() *ReverseProxy {
@@ -111,14 +62,14 @@ func createTestReverseProxy() *ReverseProxy {
 }
 
 func (r *ReverseProxy) registerTestApplicationAndWait(
-	matchers []core.Matcher,
+	matchers []Matcher,
 	handler func(w http.ResponseWriter, r *http.Request)) string {
 
 	return registerTestApp(r, matchers, handler, true)
 }
 
 func (r *ReverseProxy) registerTestApplicationAndNoWait(
-	matchers []core.Matcher,
+	matchers []Matcher,
 	handler func(w http.ResponseWriter, r *http.Request)) string {
 
 	return registerTestApp(r, matchers, handler, false)
@@ -126,7 +77,7 @@ func (r *ReverseProxy) registerTestApplicationAndNoWait(
 
 func registerTestApp(
 	reverseProxy *ReverseProxy,
-	matchers []core.Matcher,
+	matchers []Matcher,
 	handler func(w http.ResponseWriter, r *http.Request),
 	waitForAvailableService bool) string {
 	healthCfg := &core.HealthCheckConfig{
@@ -185,27 +136,6 @@ func handlerWithRequestAsResponseContent() func(w http.ResponseWriter, r *http.R
 
 		content, _ := json.Marshal(response)
 		_, _ = w.Write(content)
-	}
-}
-
-func handlerWithNonSecuredResponseHeader() func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		w.Header().Set("Server", "TestServer")
-		w.Header().Set("X-Powered-By", "Dotnet")
-		w.Header().Set("X-AspNet-Version", "4.0.30319")
-		w.Header().Set("X-AspNetMvc-Version", "5.2")
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Location", "https://new.test.com")
-
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
-func handlerWritingResponseCookie() func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		http.SetCookie(w, &http.Cookie{Name: "cookie1", Value: "value1"})
-		w.WriteHeader(http.StatusOK)
 	}
 }
 

@@ -1,7 +1,6 @@
 package reverse_proxy
 
 import (
-	"github.com/noelmugnier/goprx/internal/core"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +12,7 @@ func TestRouteMethodsMatcher(t *testing.T) {
 
 	methodTests := []struct {
 		Name, Url      string
-		Matcher        core.Matcher
+		Matcher        Matcher
 		ExpectedStatus int
 		Method         string
 	}{
@@ -44,7 +43,7 @@ func TestRouteMethodsMatcher(t *testing.T) {
 		t.Run(test.Name, func(t *testing.T) {
 			// arrange
 			reverseProxy := createTestReverseProxy()
-			reverseProxy.registerTestApplicationAndWait([]core.Matcher{test.Matcher}, handlerWithRequestAsResponseContent())
+			reverseProxy.registerTestApplicationAndWait([]Matcher{test.Matcher}, handlerWithRequestAsResponseContent())
 
 			request := httptest.NewRequest(test.Method, test.Url, nil)
 			response := httptest.NewRecorder()
@@ -58,7 +57,7 @@ func TestRouteMethodsMatcher(t *testing.T) {
 	}
 }
 
-func CreateTestMethodsMatcher(methods ...string) core.Matcher {
+func CreateTestMethodsMatcher(methods ...string) Matcher {
 	matcher, _ := CreateRouteMethodsMatcher(methods)
 	return matcher
 }

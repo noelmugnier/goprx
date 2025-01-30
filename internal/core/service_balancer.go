@@ -51,7 +51,7 @@ func (lb *ServiceBalancer) UnregisterService(ctx context.Context, host string) e
 	serviceToUnregisterFound := false
 
 	for i, serviceToUnregister := range lb.Services {
-		if serviceToUnregister.Host != host {
+		if serviceToUnregister.Hostname != host {
 			continue
 		}
 
@@ -86,14 +86,23 @@ func (lb *ServiceBalancer) HandleRequest(ctx context.Context, req *http.Request)
 		return nil, fmt.Errorf("%w: %w", ServiceUnavailable, err)
 	}
 
-	request, err := lb.factory.CreateForwardedRequestTo(req, service.Host)
+	request, err := lb.factory.CreateForwardedRequestTo(req, service.Hostname)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create forwarded request: %w", err)
 	}
 
 	lb.logger.Log(ctx, slog.LevelInfo, "forwarding request to upstream service")
-	return http.DefaultClient.Do(request)
+	resp, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout {
+		//TODO set service as unavailable for duration
+	}
+
+	return resp, err
 }
 
 func (lb *ServiceBalancer) GetAvailableService(ctx context.Context) (*Service, error) {

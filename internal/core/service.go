@@ -12,18 +12,18 @@ type Service struct {
 	quitChannel chan struct{}
 	logger      *slog.Logger
 	port        int
-	hostname    string
+	host        string
 	Available   bool
-	Host        string
+	Hostname    string
 }
 
-func CreateService(logger *slog.Logger, hostname string, port int) *Service {
+func CreateService(logger *slog.Logger, host string, port int) *Service {
 	return &Service{
 		logger:    logger,
 		port:      port,
-		hostname:  hostname,
+		host:      host,
 		Available: false,
-		Host:      fmt.Sprintf("%s:%d", hostname, port),
+		Hostname:  fmt.Sprintf("%s:%d", host, port),
 	}
 }
 
@@ -38,7 +38,7 @@ func (s *Service) Start(ctx context.Context, cfg *HealthCheckConfig) {
 			select {
 			case <-tickerChannel.C:
 				s.logger.Log(ctx, slog.LevelDebug, "calling healthCheck endpoint")
-				resp, err := http.DefaultClient.Get(fmt.Sprintf("http://%s%s", s.Host, cfg.Path))
+				resp, err := http.DefaultClient.Get(fmt.Sprintf("http://%s%s", s.Hostname, cfg.Path))
 				if err != nil || resp.StatusCode >= http.StatusBadRequest {
 					s.logger.Log(ctx, slog.LevelWarn, "application service is down")
 					healthChannel <- false
