@@ -9,26 +9,36 @@ import (
 	"time"
 )
 
-var ServiceUnavailable = errors.New("service unavailable")
+var ServiceUnavailableErr = errors.New("service unavailable")
+var GatewayTimeoutErr = errors.New("gateway timed out")
+var BadGatewayErr = errors.New("bad gateway")
+
+type ServiceBalancerConfig struct {
+	HealthCheck                   *HealthCheckConfig
+	UpstreamResolutionTimeoutInMs int
+	UpstreamRequestTimeoutInMs    int
+}
 
 type ServiceBalancer struct {
-	healthCheckConfig *HealthCheckConfig
-	logger            *slog.Logger
-	factory           *HttpRequestForwarderFactory
-	Services          []*Service
+	logger       *slog.Logger
+	factory      *HttpRequestForwarderFactory
+	Services     []*Service
+	currentIndex int
+	config       *ServiceBalancerConfig
 }
 
 type HealthCheckConfig struct {
-	Path     string
-	Interval time.Duration
+	Path         string
+	IntervalInMs time.Duration
 }
 
-func CreateServiceBalancer(factory *HttpRequestForwarderFactory, cfg *HealthCheckConfig, logger *slog.Logger) *ServiceBalancer {
+func CreateServiceBalancer(factory *HttpRequestForwarderFactory, cfg *ServiceBalancerConfig, logger *slog.Logger) *ServiceBalancer {
 	return &ServiceBalancer{
-		healthCheckConfig: cfg,
-		logger:            logger,
-		Services:          make([]*Service, 0),
-		factory:           factory,
+		config:       cfg,
+		logger:       logger,
+		Services:     make([]*Service, 0),
+		factory:      factory,
+		currentIndex: 0,
 	}
 }
 
@@ -36,7 +46,7 @@ func (lb *ServiceBalancer) RegisterService(ctx context.Context, hostname string,
 	service := CreateService(lb.logger, hostname, port)
 
 	lb.logger.Log(ctx, slog.LevelInfo, "registering service")
-	service.Start(ctx, lb.healthCheckConfig)
+	service.Start(ctx, lb.config.HealthCheck)
 	lb.Services = append(lb.Services, service)
 	lb.logger.Log(ctx, slog.LevelInfo, "service registered")
 
@@ -83,7 +93,7 @@ func (lb *ServiceBalancer) HandleRequest(ctx context.Context, req *http.Request)
 
 	service, err := lb.GetAvailableService(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ServiceUnavailable, err)
+		return nil, err
 	}
 
 	request, err := lb.factory.CreateForwardedRequestTo(req, service.Hostname)
@@ -95,7 +105,7 @@ func (lb *ServiceBalancer) HandleRequest(ctx context.Context, req *http.Request)
 	lb.logger.Log(ctx, slog.LevelInfo, "forwarding request to upstream service")
 	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to forward request to upstream service: %w", BadGatewayErr)
 	}
 
 	if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout {
@@ -107,12 +117,22 @@ func (lb *ServiceBalancer) HandleRequest(ctx context.Context, req *http.Request)
 
 func (lb *ServiceBalancer) GetAvailableService(ctx context.Context) (*Service, error) {
 	lb.logger.Log(ctx, slog.LevelDebug, "retrieving an available service")
-	for _, service := range lb.Services {
-		if service.Available {
-			lb.logger.Log(ctx, slog.LevelDebug, "available service found")
-			return service, nil
+
+	timeCtx, cancel := context.WithTimeout(ctx, time.Duration(lb.config.UpstreamResolutionTimeoutInMs)*time.Millisecond)
+	defer cancel()
+
+	for {
+		select {
+		case <-timeCtx.Done():
+			return nil, fmt.Errorf("failed to retrieve an available service within the allocated time: %w", BadGatewayErr)
+		default:
+			nextService := lb.Services[lb.currentIndex]
+			lb.currentIndex = (lb.currentIndex + 1) % len(lb.Services)
+
+			if nextService.Available {
+				lb.logger.Log(ctx, slog.LevelDebug, "found an available service")
+				return nextService, nil
+			}
 		}
 	}
-
-	return nil, fmt.Errorf("no available service found")
 }

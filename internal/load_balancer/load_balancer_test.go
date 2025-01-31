@@ -48,16 +48,19 @@ func registerTestApp(
 	pathPrefix string,
 	handler func(w http.ResponseWriter, r *http.Request),
 	waitForAvailableService bool) string {
-	healthCfg := &core.HealthCheckConfig{
-		Path:     "/healthz",
-		Interval: 1,
+	sbCfg := &core.ServiceBalancerConfig{
+		HealthCheck: &core.HealthCheckConfig{
+			Path:         "/healthz",
+			IntervalInMs: 1,
+		},
+		UpstreamResolutionTimeoutInMs: 1,
 	}
 
 	logger := slog.Default()
 	slog.SetLogLoggerLevel(slog.LevelError)
 
 	factory := core.CreateHttpRequestForwarderFactory(logger)
-	lb := core.CreateServiceBalancer(factory, healthCfg, logger)
+	lb := core.CreateServiceBalancer(factory, sbCfg, logger)
 	serviceHost, servicePort := createTestService(handler)
 	ctx := context.Background()
 

@@ -11,7 +11,7 @@ import (
 func TestRouteQueryParamsMatcher(t *testing.T) {
 	endpointUrl := "http://localhost/simple-query"
 
-	queryTests := []struct {
+	testCases := []struct {
 		Name, Url      string
 		Matcher        Matcher
 		ExpectedStatus int
@@ -42,8 +42,10 @@ func TestRouteQueryParamsMatcher(t *testing.T) {
 		},
 	}
 
-	for _, test := range queryTests {
+	for _, test := range testCases {
 		t.Run(test.Name, func(t *testing.T) {
+			t.Parallel()
+
 			// arrange
 			reverseProxy := createTestReverseProxy()
 			reverseProxy.registerTestApplicationAndWait([]Matcher{test.Matcher}, handlerWithRequestAsResponseContent())

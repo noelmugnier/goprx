@@ -14,6 +14,8 @@ import (
 
 func TestRequestFactory(t *testing.T) {
 	t.Run("should forward request with new host", func(t *testing.T) {
+		t.Parallel()
+
 		// arrange
 		factory := CreateHttpRequestForwarderFactory(slog.Default())
 		originalRequest := httptest.NewRequest(http.MethodGet, "http://test.com", nil)
@@ -28,6 +30,8 @@ func TestRequestFactory(t *testing.T) {
 	})
 
 	t.Run("should forward request with original path", func(t *testing.T) {
+		t.Parallel()
+
 		// arrange
 		factory := CreateHttpRequestForwarderFactory(slog.Default())
 		expectedPath := "/super/test"
@@ -42,6 +46,8 @@ func TestRequestFactory(t *testing.T) {
 	})
 
 	t.Run("should forward request with original query params", func(t *testing.T) {
+		t.Parallel()
+
 		// arrange
 		factory := CreateHttpRequestForwarderFactory(slog.Default())
 		expectedQueryParams := "my-params=test"
@@ -56,6 +62,8 @@ func TestRequestFactory(t *testing.T) {
 	})
 
 	t.Run("should switch https to http scheme", func(t *testing.T) {
+		t.Parallel()
+
 		// arrange
 		factory := CreateHttpRequestForwarderFactory(slog.Default())
 		originalRequest := httptest.NewRequest(http.MethodGet, "https://test.com", nil)
@@ -69,6 +77,8 @@ func TestRequestFactory(t *testing.T) {
 	})
 
 	t.Run("should add x-forwarded headers", func(t *testing.T) {
+		t.Parallel()
+
 		// arrange
 		factory := CreateHttpRequestForwarderFactory(slog.Default())
 		originalRequest := httptest.NewRequest(http.MethodGet, "https://test.com/test", nil)
@@ -84,6 +94,8 @@ func TestRequestFactory(t *testing.T) {
 	})
 
 	t.Run("should forward existing headers", func(t *testing.T) {
+		t.Parallel()
+
 		// arrange
 		factory := CreateHttpRequestForwarderFactory(slog.Default())
 		originalRequest := httptest.NewRequest(http.MethodGet, "https://test.com", nil)
@@ -102,6 +114,8 @@ func TestRequestFactory(t *testing.T) {
 	})
 
 	t.Run("should forward existing cookies", func(t *testing.T) {
+		t.Parallel()
+
 		// arrange
 		factory := CreateHttpRequestForwarderFactory(slog.Default())
 		originalRequest := httptest.NewRequest(http.MethodGet, "https://test.com", nil)
@@ -119,6 +133,8 @@ func TestRequestFactory(t *testing.T) {
 	})
 
 	t.Run("should forward body content", func(t *testing.T) {
+		t.Parallel()
+
 		// arrange
 		factory := CreateHttpRequestForwarderFactory(slog.Default())
 		requestData := []byte(`{"title": "foo", "body": "bar", "userId": 1}`)

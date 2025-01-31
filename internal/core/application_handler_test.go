@@ -19,6 +19,8 @@ func TestApplicationHandler(t *testing.T) {
 	endpointUrl := "http://localhost/simple-query"
 
 	t.Run("should forward back cookies from upstream response", func(t *testing.T) {
+		t.Parallel()
+
 		// arrange
 		sb := createServiceBalancer(handlerWritingResponseCookie(), true, logger)
 		handler := CreateApplicationHandler(sb, logger)
@@ -36,6 +38,8 @@ func TestApplicationHandler(t *testing.T) {
 	})
 
 	t.Run("should remove non secured headers from upstream response", func(t *testing.T) {
+		t.Parallel()
+
 		// arrange
 		sb := createServiceBalancer(handlerWithNonSecuredResponseHeader(), true, logger)
 		handler := CreateApplicationHandler(sb, logger)
@@ -56,7 +60,9 @@ func TestApplicationHandler(t *testing.T) {
 		assert.Equal(t, "application/json", response.Header().Get("Content-Type"))
 	})
 
-	t.Run("should return 503 when no upstream available", func(t *testing.T) {
+	t.Run("should return 502 when no upstream is available", func(t *testing.T) {
+		t.Parallel()
+
 		// arrange
 		sb := createServiceBalancer(handlerWithStatusCode(http.StatusGatewayTimeout), false, logger)
 		handler := CreateApplicationHandler(sb, logger)
@@ -68,7 +74,7 @@ func TestApplicationHandler(t *testing.T) {
 		handler(response, request)
 
 		// assert
-		assert.Equal(t, http.StatusServiceUnavailable, response.Code)
+		assert.Equal(t, http.StatusBadGateway, response.Code)
 	})
 }
 
@@ -76,13 +82,16 @@ func createServiceBalancer(
 	handler func(w http.ResponseWriter, r *http.Request),
 	waitForAvailableService bool,
 	logger *slog.Logger) *ServiceBalancer {
-	healthCfg := &HealthCheckConfig{
-		Path:     "/healthz",
-		Interval: 1,
+	sbCfg := &ServiceBalancerConfig{
+		HealthCheck: &HealthCheckConfig{
+			Path:         "/healthz",
+			IntervalInMs: 1,
+		},
+		UpstreamResolutionTimeoutInMs: 1,
 	}
 
 	factory := CreateHttpRequestForwarderFactory(logger)
-	serviceBalancer := CreateServiceBalancer(factory, healthCfg, logger)
+	serviceBalancer := CreateServiceBalancer(factory, sbCfg, logger)
 	serviceHost, servicePort := createTestService(handler)
 	ctx := context.Background()
 

@@ -19,8 +19,12 @@ func CreateApplicationHandler(sb *ServiceBalancer, logger *slog.Logger) func(w h
 		ctx := r.Context()
 		resp, err := sb.HandleRequest(ctx, r)
 		if err != nil {
-			if errors.Is(err, ServiceUnavailable) {
+			if errors.Is(err, ServiceUnavailableErr) {
 				w.WriteHeader(http.StatusServiceUnavailable)
+			} else if errors.Is(err, BadGatewayErr) {
+				w.WriteHeader(http.StatusBadGateway)
+			} else if errors.Is(err, GatewayTimeoutErr) {
+				w.WriteHeader(http.StatusGatewayTimeout)
 			} else {
 				w.WriteHeader(http.StatusInternalServerError)
 			}

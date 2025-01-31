@@ -23,7 +23,7 @@ func TestReverseProxy(t *testing.T) {
 	methodsMatcher := CreateTestMethodsMatcher(http.MethodPost)
 	matchers := []Matcher{pathMatcher, methodsMatcher}
 
-	testData := []struct {
+	testCases := []struct {
 		Name, Method, Url  string
 		ExpectedStatusCode int
 	}{
@@ -32,8 +32,10 @@ func TestReverseProxy(t *testing.T) {
 		{"should not forward when no matcher succeed", http.MethodGet, "http://localhost/another-query", http.StatusNotFound},
 	}
 
-	for _, test := range testData {
+	for _, test := range testCases {
 		t.Run(test.Name, func(t *testing.T) {
+			t.Parallel()
+
 			// arrange
 			reverseProxy := createTestReverseProxy()
 			reverseProxy.registerTestApplicationAndWait(matchers, handlerWithStatusCode(http.StatusOK))
@@ -80,16 +82,19 @@ func registerTestApp(
 	matchers []Matcher,
 	handler func(w http.ResponseWriter, r *http.Request),
 	waitForAvailableService bool) string {
-	healthCfg := &core.HealthCheckConfig{
-		Path:     "/healthz",
-		Interval: 1,
+	sbCfg := &core.ServiceBalancerConfig{
+		HealthCheck: &core.HealthCheckConfig{
+			Path:         "/healthz",
+			IntervalInMs: 1,
+		},
+		UpstreamResolutionTimeoutInMs: 1,
 	}
 
 	logger := slog.Default()
 	slog.SetLogLoggerLevel(slog.LevelError)
 
 	factory := core.CreateHttpRequestForwarderFactory(logger)
-	lb := core.CreateServiceBalancer(factory, healthCfg, logger)
+	lb := core.CreateServiceBalancer(factory, sbCfg, logger)
 	serviceHost, servicePort := createTestService(handler)
 	ctx := context.Background()
 

@@ -29,7 +29,7 @@ func CreateService(logger *slog.Logger, host string, port int) *Service {
 
 func (s *Service) Start(ctx context.Context, cfg *HealthCheckConfig) {
 	s.quitChannel = make(chan struct{})
-	tickerChannel := time.NewTicker(cfg.Interval * time.Millisecond)
+	tickerChannel := time.NewTicker(cfg.IntervalInMs * time.Millisecond)
 	healthChannel := make(chan bool)
 
 	go func() {

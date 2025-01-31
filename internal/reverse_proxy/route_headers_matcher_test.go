@@ -10,7 +10,7 @@ import (
 func TestRouteHeadersMatcher(t *testing.T) {
 	endpointUrl := "http://localhost/simple-query"
 
-	headerTests := []struct {
+	testCases := []struct {
 		Name, Url      string
 		Matcher        Matcher
 		ExpectedStatus int
@@ -46,8 +46,10 @@ func TestRouteHeadersMatcher(t *testing.T) {
 		},
 	}
 
-	for _, test := range headerTests {
+	for _, test := range testCases {
 		t.Run(test.Name, func(t *testing.T) {
+			t.Parallel()
+
 			// arrange
 			reverseProxy := createTestReverseProxy()
 			reverseProxy.registerTestApplicationAndWait([]Matcher{test.Matcher}, handlerWithRequestAsResponseContent())
