@@ -17,14 +17,48 @@ type ServiceBalancerConfig struct {
 	HealthCheck                   *HealthCheckConfig
 	UpstreamResolutionTimeoutInMs int
 	UpstreamRequestTimeoutInMs    int
+	Strategy                      ServiceBalancingStrategy
+}
+
+func CreateDefaultHealthCheckConfig(intervalInMs time.Duration) *HealthCheckConfig {
+	return &HealthCheckConfig{
+		Path:         "/healthz",
+		IntervalInMs: intervalInMs,
+	}
+}
+
+func CreateRoundRobinServiceBalancerConfig(healthCheck *HealthCheckConfig, upstreamResolutionTimeoutInMs int, upstreamRequestTimeoutInMs int) *ServiceBalancerConfig {
+	return &ServiceBalancerConfig{
+		HealthCheck:                   healthCheck,
+		UpstreamResolutionTimeoutInMs: upstreamResolutionTimeoutInMs,
+		UpstreamRequestTimeoutInMs:    upstreamRequestTimeoutInMs,
+		Strategy:                      &RoundRobinStrategy{},
+	}
+}
+
+func CreateWeightedRoundRobinServiceBalancerConfig(healthCheck *HealthCheckConfig, upstreamResolutionTimeoutInMs int, upstreamRequestTimeoutInMs int) *ServiceBalancerConfig {
+	return &ServiceBalancerConfig{
+		HealthCheck:                   healthCheck,
+		UpstreamResolutionTimeoutInMs: upstreamResolutionTimeoutInMs,
+		UpstreamRequestTimeoutInMs:    upstreamRequestTimeoutInMs,
+		Strategy:                      &WeightedRoundRobinStrategy{},
+	}
+}
+
+func CreateInterleavedRoundRobinServiceBalancerConfig(healthCheck *HealthCheckConfig, upstreamResolutionTimeoutInMs int, upstreamRequestTimeoutInMs int) *ServiceBalancerConfig {
+	return &ServiceBalancerConfig{
+		HealthCheck:                   healthCheck,
+		UpstreamResolutionTimeoutInMs: upstreamResolutionTimeoutInMs,
+		UpstreamRequestTimeoutInMs:    upstreamRequestTimeoutInMs,
+		Strategy:                      &InterleavedRoundRobinStrategy{},
+	}
 }
 
 type ServiceBalancer struct {
-	logger       *slog.Logger
-	factory      *HttpRequestForwarderFactory
-	Services     []*Service
-	currentIndex int
-	config       *ServiceBalancerConfig
+	logger   *slog.Logger
+	factory  *HttpRequestForwarderFactory
+	Config   *ServiceBalancerConfig
+	Services []*Service
 }
 
 type HealthCheckConfig struct {
@@ -32,21 +66,92 @@ type HealthCheckConfig struct {
 	IntervalInMs time.Duration
 }
 
-func CreateServiceBalancer(factory *HttpRequestForwarderFactory, cfg *ServiceBalancerConfig, logger *slog.Logger) *ServiceBalancer {
-	return &ServiceBalancer{
-		config:       cfg,
-		logger:       logger,
-		Services:     make([]*Service, 0),
-		factory:      factory,
-		currentIndex: 0,
+func (sc *ServiceConfig) SetWeight(weight int) {
+	sc.Weight = weight
+}
+
+type ServiceConfig struct {
+	Host   string
+	Port   int
+	Weight int
+}
+
+func CreateRoundRobinServiceConfig(host string, port int) *ServiceConfig {
+	return &ServiceConfig{
+		Host:   host,
+		Port:   port,
+		Weight: 1,
 	}
 }
 
-func (lb *ServiceBalancer) RegisterService(ctx context.Context, hostname string, port int) *Service {
-	service := CreateService(lb.logger, hostname, port)
+func CreateWeightedRoundRobinServiceConfig(host string, port int, weight int) *ServiceConfig {
+	return &ServiceConfig{
+		Host:   host,
+		Port:   port,
+		Weight: weight,
+	}
+}
+
+var (
+	RRStrategy     = "round_robin"
+	WRRStrategy    = "weighted_round_robin"
+	IRRStrategy    = "interleaved_round_robin"
+	IPHashStrategy = "ip_hash"
+)
+
+func (lb *ServiceBalancer) ElectNextService() (*Service, error) {
+	return lb.Config.Strategy.ElectNextService(lb.Services)
+}
+
+type RoundRobinStrategy struct {
+	currentIndex int
+}
+
+type WeightedRoundRobinStrategy struct {
+	currentIndex int
+}
+
+type InterleavedRoundRobinStrategy struct {
+	currentIndex int
+}
+
+type ServiceBalancingStrategy interface {
+	ElectNextService(services []*Service) (*Service, error)
+}
+
+func (rrs *RoundRobinStrategy) ElectNextService(services []*Service) (*Service, error) {
+	nextService := services[rrs.currentIndex]
+	rrs.currentIndex = (rrs.currentIndex + 1) % len(services)
+
+	if nextService.Available {
+		return nextService, nil
+	}
+
+	return nil, nil
+}
+
+func (rrs *WeightedRoundRobinStrategy) ElectNextService(services []*Service) (*Service, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (rrs *InterleavedRoundRobinStrategy) ElectNextService(services []*Service) (*Service, error) {
+	return nil, errors.New("not implemented")
+}
+
+func CreateServiceBalancer(factory *HttpRequestForwarderFactory, cfg *ServiceBalancerConfig, logger *slog.Logger) *ServiceBalancer {
+	return &ServiceBalancer{
+		logger:   logger,
+		Services: make([]*Service, 0),
+		factory:  factory,
+		Config:   cfg,
+	}
+}
+
+func (lb *ServiceBalancer) RegisterService(ctx context.Context, cfg *ServiceConfig) *Service {
+	service := CreateService(lb.logger, cfg)
 
 	lb.logger.Log(ctx, slog.LevelInfo, "registering service")
-	service.Start(ctx, lb.config.HealthCheck)
+	service.Start(ctx, lb.Config.HealthCheck)
 	lb.Services = append(lb.Services, service)
 	lb.logger.Log(ctx, slog.LevelInfo, "service registered")
 
@@ -118,7 +223,7 @@ func (lb *ServiceBalancer) HandleRequest(ctx context.Context, req *http.Request)
 func (lb *ServiceBalancer) GetAvailableService(ctx context.Context) (*Service, error) {
 	lb.logger.Log(ctx, slog.LevelDebug, "retrieving an available service")
 
-	timeCtx, cancel := context.WithTimeout(ctx, time.Duration(lb.config.UpstreamResolutionTimeoutInMs)*time.Millisecond)
+	timeCtx, cancel := context.WithTimeout(ctx, time.Duration(lb.Config.UpstreamResolutionTimeoutInMs)*time.Millisecond)
 	defer cancel()
 
 	for {
@@ -126,13 +231,18 @@ func (lb *ServiceBalancer) GetAvailableService(ctx context.Context) (*Service, e
 		case <-timeCtx.Done():
 			return nil, fmt.Errorf("failed to retrieve an available service within the allocated time: %w", BadGatewayErr)
 		default:
-			nextService := lb.Services[lb.currentIndex]
-			lb.currentIndex = (lb.currentIndex + 1) % len(lb.Services)
-
-			if nextService.Available {
-				lb.logger.Log(ctx, slog.LevelDebug, "found an available service")
-				return nextService, nil
+			service, err := lb.ElectNextService()
+			if err != nil {
+				return nil, fmt.Errorf("failed to elect next available upstream service: %w", err)
 			}
+
+			if service == nil {
+				lb.logger.Log(ctx, slog.LevelDebug, "no available upstream service", slog.Any("error", err))
+				continue
+			}
+
+			lb.logger.Log(ctx, slog.LevelDebug, "found an available upstream service")
+			return service, nil
 		}
 	}
 }

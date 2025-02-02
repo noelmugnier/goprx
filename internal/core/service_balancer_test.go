@@ -14,31 +14,25 @@ func TestServiceBalancer(t *testing.T) {
 	logger := slog.Default()
 	slog.SetLogLoggerLevel(slog.LevelError)
 
-	service1Host, service1Port := createTestService(handlerWithStatusCode(http.StatusOK))
-	service2Host, service2Port := createTestService(handlerWithStatusCode(http.StatusOK))
-	service3Host, service3Port := createTestService(handlerWithStatusCode(http.StatusOK))
+	service1Cfg := createTestService(handlerWithStatusCode(http.StatusOK))
+	service2Cfg := createTestService(handlerWithStatusCode(http.StatusOK))
+	service3Cfg := createTestService(handlerWithStatusCode(http.StatusOK))
 
-	sbCfg := &ServiceBalancerConfig{
-		HealthCheck: &HealthCheckConfig{
-			Path:         "/healthz",
-			IntervalInMs: 1,
-		},
-		UpstreamResolutionTimeoutInMs: 1,
-		UpstreamRequestTimeoutInMs:    100,
-	}
-
-	sb := CreateServiceBalancer(CreateHttpRequestForwarderFactory(logger), sbCfg, logger)
-
-	services := make([]*Service, 0)
-	svc := sb.RegisterService(context.Background(), service1Host, service1Port)
-	services = append(services, svc)
-	svc = sb.RegisterService(context.Background(), service2Host, service2Port)
-	services = append(services, svc)
-	svc = sb.RegisterService(context.Background(), service3Host, service3Port)
-	services = append(services, svc)
+	healthCheckCfg := CreateDefaultHealthCheckConfig(1)
 
 	t.Run("should dequeue in round robin way registered services", func(t *testing.T) {
 		t.Parallel()
+
+		cfg := CreateRoundRobinServiceBalancerConfig(healthCheckCfg, 1, 1)
+		sb := CreateServiceBalancer(CreateHttpRequestForwarderFactory(logger), cfg, logger)
+
+		services := make([]*Service, 0)
+		svc := sb.RegisterService(context.Background(), service1Cfg)
+		services = append(services, svc)
+		svc = sb.RegisterService(context.Background(), service2Cfg)
+		services = append(services, svc)
+		svc = sb.RegisterService(context.Background(), service3Cfg)
+		services = append(services, svc)
 
 		ctx := context.Background()
 		iteration := 3
@@ -56,8 +50,7 @@ func TestServiceBalancer(t *testing.T) {
 
 			// assert
 			require.NoError(t, err)
-			assert.Equal(t, services[cursor].host, svc.host)
-			assert.Equal(t, services[cursor].port, svc.port)
+			assert.Equal(t, services[cursor].Hostname, svc.Hostname)
 
 			// next
 			cursor++
@@ -69,34 +62,71 @@ func TestServiceBalancer(t *testing.T) {
 		}
 	})
 
-	t.Run("should dequeue in round robin way registered services", func(t *testing.T) {
+	t.Run("should dequeue in Weighted Round Robin way registered services", func(t *testing.T) {
 		t.Parallel()
 
+		cfg := CreateWeightedRoundRobinServiceBalancerConfig(healthCheckCfg, 1, 1)
+		sb := CreateServiceBalancer(CreateHttpRequestForwarderFactory(logger), cfg, logger)
+
+		service1Cfg.SetWeight(5)
+		service2Cfg.SetWeight(2)
+		service3Cfg.SetWeight(3)
+
+		services := make([]*Service, 0)
+		svc := sb.RegisterService(context.Background(), service1Cfg)
+		services = append(services, svc)
+		svc = sb.RegisterService(context.Background(), service2Cfg)
+		services = append(services, svc)
+		svc = sb.RegisterService(context.Background(), service3Cfg)
+		services = append(services, svc)
+
+		expectedIndexes := []int{0, 0, 0, 0, 0, 2, 2, 2, 1, 1}
+
 		ctx := context.Background()
-		iteration := 3
-		cursor := 0
 
 		waitForAllServicesToBeAvailable(sb)
 
-		for {
-			if iteration == 0 {
-				break
-			}
-
+		for _, index := range expectedIndexes {
 			// act
 			svc, err := sb.GetAvailableService(ctx)
 
 			// assert
 			require.NoError(t, err)
-			assert.Equal(t, services[cursor].host, svc.host)
-			assert.Equal(t, services[cursor].port, svc.port)
+			assert.Equal(t, services[index].Hostname, svc.Hostname)
+		}
+	})
 
-			// next
-			cursor++
-			if cursor == 3 {
-				cursor = 0
-				iteration--
-			}
+	t.Run("should dequeue in Interleaved Round Robin way registered services", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := CreateInterleavedRoundRobinServiceBalancerConfig(healthCheckCfg, 1, 1)
+		sb := CreateServiceBalancer(CreateHttpRequestForwarderFactory(logger), cfg, logger)
+
+		service1Cfg.SetWeight(5)
+		service2Cfg.SetWeight(2)
+		service3Cfg.SetWeight(3)
+
+		services := make([]*Service, 0)
+		svc := sb.RegisterService(context.Background(), service1Cfg)
+		services = append(services, svc)
+		svc = sb.RegisterService(context.Background(), service2Cfg)
+		services = append(services, svc)
+		svc = sb.RegisterService(context.Background(), service3Cfg)
+		services = append(services, svc)
+
+		expectedIndexes := []int{0, 2, 1, 0, 2, 1, 0, 2, 0, 0}
+
+		ctx := context.Background()
+
+		waitForAllServicesToBeAvailable(sb)
+
+		for _, index := range expectedIndexes {
+			// act
+			svc, err := sb.GetAvailableService(ctx)
+
+			// assert
+			require.NoError(t, err)
+			assert.Equal(t, services[index].Hostname, svc.Hostname)
 		}
 	})
 }

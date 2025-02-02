@@ -9,7 +9,7 @@ import (
 )
 
 type Application interface {
-	RegisterService(ctx context.Context, hostname string, port int) *Service
+	RegisterService(ctx context.Context, cfg *ServiceConfig) *Service
 	UnregisterService(ctx context.Context, host string) error
 	Handler(w http.ResponseWriter, r *http.Request)
 }

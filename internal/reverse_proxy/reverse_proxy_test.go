@@ -82,24 +82,18 @@ func registerTestApp(
 	matchers []Matcher,
 	handler func(w http.ResponseWriter, r *http.Request),
 	waitForAvailableService bool) string {
-	sbCfg := &core.ServiceBalancerConfig{
-		HealthCheck: &core.HealthCheckConfig{
-			Path:         "/healthz",
-			IntervalInMs: 1,
-		},
-		UpstreamResolutionTimeoutInMs: 1,
-	}
+	sbCfg := core.CreateRoundRobinServiceBalancerConfig(core.CreateDefaultHealthCheckConfig(1), 1, 1)
 
 	logger := slog.Default()
 	slog.SetLogLoggerLevel(slog.LevelError)
 
 	factory := core.CreateHttpRequestForwarderFactory(logger)
 	lb := core.CreateServiceBalancer(factory, sbCfg, logger)
-	serviceHost, servicePort := createTestService(handler)
+	serviceCfg := createTestService(handler)
 	ctx := context.Background()
 
 	app := reverseProxy.MapApplication(ctx, uuid.NewString(), matchers, lb)
-	app.RegisterService(ctx, serviceHost, servicePort)
+	app.RegisterService(ctx, serviceCfg)
 
 	if waitForAvailableService {
 		for {
@@ -110,10 +104,10 @@ func registerTestApp(
 		}
 	}
 
-	return fmt.Sprintf("%s:%d", serviceHost, servicePort)
+	return fmt.Sprintf("%s:%d", serviceCfg.Host, serviceCfg.Port)
 }
 
-func createTestService(request func(w http.ResponseWriter, r *http.Request)) (string, int) {
+func createTestService(request func(w http.ResponseWriter, r *http.Request)) *core.ServiceConfig {
 	router := http.NewServeMux()
 
 	router.HandleFunc("/", request)
@@ -121,7 +115,7 @@ func createTestService(request func(w http.ResponseWriter, r *http.Request)) (st
 	fullUrl := httptest.NewServer(router).URL
 	host, portStr, _ := net.SplitHostPort(strings.SplitAfter(fullUrl, "://")[1])
 	port, _ := strconv.Atoi(portStr)
-	return host, port
+	return &core.ServiceConfig{Host: host, Port: port}
 }
 
 func handlerWithRequestAsResponseContent() func(w http.ResponseWriter, r *http.Request) {

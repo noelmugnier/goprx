@@ -27,8 +27,8 @@ func CreateApplication(name string, matchers []Matcher, sb *core.ServiceBalancer
 	}
 }
 
-func (a *ProxifiedApplication) RegisterService(ctx context.Context, hostname string, port int) *core.Service {
-	return a.sb.RegisterService(ctx, hostname, port)
+func (a *ProxifiedApplication) RegisterService(ctx context.Context, cfg *core.ServiceConfig) *core.Service {
+	return a.sb.RegisterService(ctx, cfg)
 }
 
 func (a *ProxifiedApplication) UnregisterService(ctx context.Context, host string) error {
@@ -49,3 +49,4 @@ func (a *ProxifiedApplication) Match(r *http.Request) bool {
 
 	return false
 }
+

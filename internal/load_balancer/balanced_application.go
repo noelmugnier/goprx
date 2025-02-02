@@ -25,8 +25,8 @@ func CreateApplication(name string, sb *core.ServiceBalancer, logger *slog.Logge
 	}
 }
 
-func (a *BalancedApplication) RegisterService(ctx context.Context, hostname string, port int) *core.Service {
-	return a.sb.RegisterService(ctx, hostname, port)
+func (a *BalancedApplication) RegisterService(ctx context.Context, cfg *core.ServiceConfig) *core.Service {
+	return a.sb.RegisterService(ctx, cfg)
 }
 
 func (a *BalancedApplication) UnregisterService(ctx context.Context, host string) error {

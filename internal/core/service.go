@@ -11,19 +11,17 @@ import (
 type Service struct {
 	quitChannel chan struct{}
 	logger      *slog.Logger
-	port        int
-	host        string
+	Config      *ServiceConfig
 	Available   bool
 	Hostname    string
 }
 
-func CreateService(logger *slog.Logger, host string, port int) *Service {
+func CreateService(logger *slog.Logger, cfg *ServiceConfig) *Service {
 	return &Service{
 		logger:    logger,
-		port:      port,
-		host:      host,
+		Config:    cfg,
 		Available: false,
-		Hostname:  fmt.Sprintf("%s:%d", host, port),
+		Hostname:  fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 	}
 }
 

@@ -82,20 +82,14 @@ func createServiceBalancer(
 	handler func(w http.ResponseWriter, r *http.Request),
 	waitForAvailableService bool,
 	logger *slog.Logger) *ServiceBalancer {
-	sbCfg := &ServiceBalancerConfig{
-		HealthCheck: &HealthCheckConfig{
-			Path:         "/healthz",
-			IntervalInMs: 1,
-		},
-		UpstreamResolutionTimeoutInMs: 1,
-	}
+	sbCfg := CreateRoundRobinServiceBalancerConfig(CreateDefaultHealthCheckConfig(1), 1, 100)
 
 	factory := CreateHttpRequestForwarderFactory(logger)
 	serviceBalancer := CreateServiceBalancer(factory, sbCfg, logger)
-	serviceHost, servicePort := createTestService(handler)
+	serviceConfig := createTestService(handler)
 	ctx := context.Background()
 
-	serviceBalancer.RegisterService(ctx, serviceHost, servicePort)
+	serviceBalancer.RegisterService(ctx, serviceConfig)
 
 	if waitForAvailableService {
 		for {
@@ -109,7 +103,7 @@ func createServiceBalancer(
 	return serviceBalancer
 }
 
-func createTestService(request func(w http.ResponseWriter, r *http.Request)) (string, int) {
+func createTestService(request func(w http.ResponseWriter, r *http.Request)) *ServiceConfig {
 	router := http.NewServeMux()
 
 	router.HandleFunc("/", request)
@@ -117,7 +111,7 @@ func createTestService(request func(w http.ResponseWriter, r *http.Request)) (st
 	fullUrl := httptest.NewServer(router).URL
 	host, portStr, _ := net.SplitHostPort(strings.SplitAfter(fullUrl, "://")[1])
 	port, _ := strconv.Atoi(portStr)
-	return host, port
+	return &ServiceConfig{Host: host, Port: port, Weight: 1}
 }
 
 func handlerWithNonSecuredResponseHeader() func(w http.ResponseWriter, r *http.Request) {
